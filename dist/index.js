@@ -1,45 +1,41 @@
-import express, {} from "express";
-import { WebSocketServer } from "ws";
+import { WebSocketServer } from 'ws';
+import express from "express";
+import generateID from './genId.js';
 const app = express();
-const httpServer = app.listen(8080);
-let userCount = 0;
+const httpServer = app.listen(3000);
+const rooms = {};
 const wss = new WebSocketServer({ server: httpServer });
-wss.on("connection", function connection(ws) {
+wss.on('connection', function connection(ws) {
+    console.log("Someone connected");
     ws.on('error', console.error);
-    ws.on('message', function message(data, isBinary) {
-        wss.clients.forEach(function each(client) {
-            if (client.readyState === WebSocket.OPEN) {
-                client.send(data, { binary: isBinary });
+    ws.on('message', async function message(data) {
+        console.log("Data received: ", data);
+        const parsedData = JSON.parse(data);
+        console.log("Parsed Data: \n", parsedData);
+        if (parsedData.type == "join-room") {
+            const room = parsedData.room;
+            if (!rooms[room]) {
+                rooms[room] = {
+                    sockets: []
+                };
             }
-        });
+            rooms[room].sockets.push(ws);
+            console.log(parsedData.username, " just joined in: ", room);
+            rooms[room].sockets.forEach((socket) => {
+                socket.send(parsedData.username + " just joined.");
+            });
+        }
+        else if (parsedData.type == "create-room") {
+            const room = await generateID();
+            rooms[room] = {
+                sockets: []
+            };
+            rooms[room].sockets.push(ws);
+            ws.send("New room created with ID: " + room);
+        }
     });
-    console.log("User connected: ", ++userCount);
-    ws.send('Hello! Message From Server!!');
+    ws.on('close', function close() {
+        console.log("Connection Closed");
+    });
 });
-// app.post("/api/v1/signup", (req: Request, res: Response)=>{
-//     const [email, password, username] = req.body
-//     if(!email || !password){
-//         return res.status(400).json("Invalid email and password format")
-//     }
-//     const 
-// })
-// app.post("/api/v1/signin", (req: Request, res: Response)=>{
-//     const [email, password] = req.body
-//     if(!email || !password){
-//         return res.json("Enter credentials")
-//     }else if()
-// })
-// app.get("/api/v1/rooms", (req: Request, res: Response)=>{
-//     return res.json("rooms")
-// })
-// app.post("/api/v1/join-room", (req: Request, res: Response)=>{
-// })
-// app.post("/api/v1/create-room", (req: Request, res: Response)=>{
-// })
-// app.get("/api/v1/get-game-history", (req: Request, res: Response)=>{
-// })
-// app.get("/api/v1/game/:gameId", (req: Request, res: Response)=>{
-// })
-// app.get("/api/v1/user/stats", (req: Request, res: Response)=>{
-// })
 //# sourceMappingURL=index.js.map
