@@ -7,8 +7,27 @@ const app = express();
 
 const httpServer = app.listen(3000)
 
+interface Symbols{
+    symbol: "X"|"O"
+}
+
+enum GameStatus{
+    ONGOING,
+    X_WINNER,
+    O_WINNER,
+    DRAW
+}
+
+interface Coordinates{
+    x: string,
+    y: string
+}
+
 interface Room{
-    sockets: WebSocket[]
+    players: {socket: WebSocket, symbol: "X" | "O"}[],
+    spectators: WebSocket[],
+    board: Record<string, Symbols|null>,
+    gameStatus: GameStatus
 }
 
 const rooms: Record<string, Room> = {}
@@ -40,13 +59,38 @@ wss.on('connection', function connection(ws){
 
             }else{
 
-                rooms[room].sockets.push(ws);
+                if(rooms[room].players.length + rooms[room].spectators.length < 5)
+                    {
+                        if(rooms[room].players.length < 2)
+                            {
+                                rooms[room].players.push({
+                                    socket:ws,
+                                    symbol: parsedData.symbol
+                                });
 
-                console.log(parsedData.username, " just joined in: ", room);
+                                console.log(parsedData.username, " just joined in: ", room);
 
-                rooms[room].sockets.forEach((socket)=>{
-                    socket.send(parsedData.username + " just joined.")
-                })
+                                rooms[room].players.forEach((player)=>{
+                                    player.socket.send(parsedData.username + " just joined.")
+                                })
+                            }
+                        else{
+                                rooms[room].spectators.push(ws);
+
+                                ws.send("Room full. Joined as spectator");
+
+                                rooms[room].players.forEach((player)=>{
+                                    player.socket.send(parsedData.username + " just joined.")
+                                });
+                                
+                                rooms[room].spectators.forEach((spectator)=>{
+                                    spectator.send(parsedData.username + " just joined.")
+                                })
+                            }
+                    }
+                else{
+                    ws.send("Room is full");
+                }
 
             }
 
@@ -54,21 +98,38 @@ wss.on('connection', function connection(ws){
             const room = await generateID();
 
             rooms[room]={
-                sockets:[]
+                players:[],
+                spectators: [],
+                board: {},
+                gameStatus: GameStatus.ONGOING
             }
 
-            rooms[room].sockets.push(ws);
+            
+
+            rooms[room].players.push({
+                socket: ws,
+                symbol: parsedData.symbol
+            })
             console.log(parsedData.username, " created a new room with ID: ", room)
 
             ws.send("New room created with ID: " + room)
         }
+
+
+
+        // GAMEPLAY LOGIC
+        let moves = 0;
+
+        
+
     })
 
     ws.on('close', function close(data: Buffer){
 
         for (const room of Object.values(rooms)) {
 
-            room.sockets = room.sockets.filter(socket => socket !== ws);
+            room.players = room.players.filter(socket => socket.socket !== ws);
+            room.spectators = room.spectators.filter(socket=>socket!==ws);
         }
 
         console.log("Connection Closed")

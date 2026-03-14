@@ -95,3 +95,5 @@ app.post("/api/v1/signup", async (req: Request, res: Response)=>{
     }
     
 })
+
+app.listen(3001);

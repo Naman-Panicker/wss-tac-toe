@@ -7,10 +7,36 @@ datasource db {
   provider = "postgresql"
 }
 
+enum GameStatus {
+  PENDING
+  PLAYER_O_WINS
+  PLAYER_X_WINS
+  DRAW
+}
+
 model Users{
   id String @id @default(uuid())
+
   username String @unique
   password String 
   email String @unique
+
   createdAt DateTime @default(now())
+
+  GamesAs_O Games[] @relation(name: "player_1")
+  GamesAs_X Games[] @relation(name: "player_2")
+}
+
+model Games{
+  id String @id @default(uuid())
+
+  player_O String
+  player_X String
+  status GameStatus @default(PENDING)
+
+  createdAt DateTime @default(now())
+
+  Player_1 Users @relation(name: "player_1", fields: [player_O], references: [id])
+  Player_2 Users @relation(name: "player_2",fields: [player_X], references: [id])
+
 }
