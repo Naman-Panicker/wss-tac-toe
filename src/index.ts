@@ -7,9 +7,9 @@ const app = express();
 
 const httpServer = app.listen(3000)
 
-interface Symbols{
-    symbol: "X"|"O"
-}
+// interface Symbols{
+//     symbol: "X"|"O"
+// }
 
 enum GameStatus{
     ONGOING,
@@ -19,14 +19,19 @@ enum GameStatus{
 }
 
 interface Coordinates{
-    x: string,
-    y: string
+    x: number,
+    y: number
+}
+
+interface Board{
+    coordinates: Coordinates,
+    symbol: string
 }
 
 interface Room{
     players: {socket: WebSocket, symbol: "X" | "O"}[],
     spectators: WebSocket[],
-    board: Record<string, Symbols|null>,
+    board: Board,
     gameStatus: GameStatus
 }
 
@@ -56,6 +61,8 @@ wss.on('connection', function connection(ws){
                 ws.send("The given roomID does not exist.", (err)=>{
                     console.log(err);
                 })
+
+                return
 
             }else{
 
@@ -90,17 +97,17 @@ wss.on('connection', function connection(ws){
                     }
                 else{
                     ws.send("Room is full");
-                }
-
+                };
             }
 
         }else if(parsedData.type == "create-room"){
+
             const room = await generateID();
 
             rooms[room]={
                 players:[],
                 spectators: [],
-                board: {},
+                board: {coordinates:{x:0,y:0}, symbol: "" },
                 gameStatus: GameStatus.ONGOING
             }
 
@@ -113,12 +120,40 @@ wss.on('connection', function connection(ws){
             console.log(parsedData.username, " created a new room with ID: ", room)
 
             ws.send("New room created with ID: " + room)
+            console.log("This is room: ",rooms[room])
         }
 
 
 
-        // GAMEPLAY LOGIC
-        let moves = 0;
+        // GAMEPLAY
+        
+        if(parsedData.type === "play"){
+
+            const room = parsedData.room;
+            console.log("User joined room: ", room)
+            
+            if(!rooms[room]){
+                ws.send("Incorrect room ID");
+                return
+            }
+            if(parsedData.move){
+
+                const move = parsedData.move;
+
+                console.log(move, "\nMove made by user")
+
+                let x:number = move.coordinates.x;
+                let y:number = move.coordinates.y;
+
+                let symbol = move.symbol;
+
+                let coordinates = {x: x, y:y}
+
+                rooms[room].board={coordinates:coordinates, symbol:symbol}
+                console.log(rooms[room].board)
+            };
+        }
+
 
         
 
