@@ -18,6 +18,11 @@ enum GameStatus{
     DRAW
 }
 
+enum Symbols{
+    X,
+    O
+}
+
 interface Coordinates{
     x: number,
     y: number
@@ -29,7 +34,7 @@ interface Board{
 }
 
 interface Room{
-    players: {socket: WebSocket, symbol: "X" | "O"}[],
+    players: {socket: WebSocket, symbol: Symbols}[],
     spectators: WebSocket[],
     board: Board,
     gameStatus: GameStatus
@@ -53,8 +58,16 @@ wss.on('connection', function connection(ws){
         const parsedData = JSON.parse(data.toString());
         console.log("Parsed Data: \n", parsedData)
 
+
+
+
+
+        // ROOM JOINING LOGIC. CAN JOIN AS PLAYER OR AS SPECTATOR
+
         if(parsedData.type == "join-room"){
+
             const room = parsedData.room;
+            const username = parsedData.username
 
             if(!rooms[room]){
 
@@ -70,15 +83,20 @@ wss.on('connection', function connection(ws){
                     {
                         if(rooms[room].players.length < 2)
                             {
+
+                                let symbol = null;
+
+                                rooms[room].players.length === 0 ? symbol = Symbols.O : symbol = Symbols.X
+
                                 rooms[room].players.push({
                                     socket:ws,
-                                    symbol: parsedData.symbol
+                                    symbol: symbol
                                 });
 
                                 console.log(parsedData.username, " just joined in: ", room);
 
                                 rooms[room].players.forEach((player)=>{
-                                    player.socket.send(parsedData.username + " just joined.")
+                                    player.socket.send(username + " just joined.")
                                 })
                             }
                         else{
@@ -87,11 +105,11 @@ wss.on('connection', function connection(ws){
                                 ws.send("Room full. Joined as spectator");
 
                                 rooms[room].players.forEach((player)=>{
-                                    player.socket.send(parsedData.username + " just joined.")
+                                    player.socket.send(username + " just joined.")
                                 });
                                 
                                 rooms[room].spectators.forEach((spectator)=>{
-                                    spectator.send(parsedData.username + " just joined.")
+                                    spectator.send(username + " just joined.")
                                 })
                             }
                     }
@@ -99,6 +117,9 @@ wss.on('connection', function connection(ws){
                     ws.send("Room is full");
                 };
             }
+
+
+        // ROOM CREATION LOGIC. ONLY JOINS AS PLAYER.
 
         }else if(parsedData.type == "create-room"){
 
@@ -115,7 +136,7 @@ wss.on('connection', function connection(ws){
 
             rooms[room].players.push({
                 socket: ws,
-                symbol: parsedData.symbol
+                symbol: Symbols.O 
             })
             console.log(parsedData.username, " created a new room with ID: ", room)
 
@@ -125,9 +146,9 @@ wss.on('connection', function connection(ws){
 
 
 
-        // GAMEPLAY
+        // GAMEPLAY. MESSAGE BROADCASTED TO ALL SOCKETS IN THE ROOM.
         
-        if(parsedData.type === "play"){
+        else if(parsedData.type === "play"){
 
             const room = parsedData.room;
             console.log("User joined room: ", room)
