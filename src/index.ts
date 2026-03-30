@@ -7,9 +7,6 @@ const app = express();
 
 const httpServer = app.listen(3000)
 
-// interface Symbols{
-//     symbol: "X"|"O"
-// }
 
 enum GameStatus{
     ONGOING,
@@ -19,8 +16,9 @@ enum GameStatus{
 }
 
 enum Symbols{
-    X,
-    O
+    X = "X",
+    O = "O",
+    EMPTY = ""
 }
 
 interface Coordinates{
@@ -28,17 +26,16 @@ interface Coordinates{
     y: number
 }
 
-interface Board{
-    coordinates: Coordinates,
-    symbol: string
-}
+
 
 interface Room{
     players: {socket: WebSocket, symbol: Symbols}[],
     spectators: WebSocket[],
-    board: Board,
-    gameStatus: GameStatus
+    board: Symbols[][],
+    gameStatus: GameStatus,
+    turn: Symbols
 }
+
 
 const rooms: Record<string, Room> = {}
 
@@ -53,10 +50,10 @@ wss.on('connection', function connection(ws){
 
     ws.on('message', async function message(data: Buffer){
 
-        console.log("Data received: ", data);
+        // console.log("Data received: ", data);
 
         const parsedData = JSON.parse(data.toString());
-        console.log("Parsed Data: \n", parsedData)
+        console.log("Parsed Data: ", parsedData, "\n\n")
 
 
 
@@ -93,11 +90,16 @@ wss.on('connection', function connection(ws){
                                     symbol: symbol
                                 });
 
-                                console.log(parsedData.username, " just joined in: ", room);
+                                 rooms[room].turn === Symbols.EMPTY ? rooms[room].turn = Symbols.O : rooms[room].turn = Symbols.X    // ASSIGN FIRST TURN
+
+                                console.log("\n\n", parsedData.username, " just joined in roomID: ", room);
 
                                 rooms[room].players.forEach((player)=>{
                                     player.socket.send(username + " just joined.")
                                 })
+
+                                
+                                console.log("\n\nCurrent Room State: ",rooms[room])
                             }
                         else{
                                 rooms[room].spectators.push(ws);
@@ -111,6 +113,8 @@ wss.on('connection', function connection(ws){
                                 rooms[room].spectators.forEach((spectator)=>{
                                     spectator.send(username + " just joined.")
                                 })
+
+                                console.log("\n\nCurrent Room State: ",rooms[room])
                             }
                     }
                 else{
@@ -124,12 +128,14 @@ wss.on('connection', function connection(ws){
         }else if(parsedData.type == "create-room"){
 
             const room = await generateID();
+            
 
             rooms[room]={
                 players:[],
                 spectators: [],
-                board: {coordinates:{x:0,y:0}, symbol: "" },
-                gameStatus: GameStatus.ONGOING
+                board: [ [Symbols.EMPTY, Symbols.EMPTY,Symbols.EMPTY], [Symbols.EMPTY, Symbols.EMPTY,Symbols.EMPTY], [Symbols.EMPTY,Symbols.EMPTY,Symbols.EMPTY] ] ,
+                gameStatus: GameStatus.ONGOING,
+                turn: Symbols.EMPTY
             }
 
             
@@ -141,7 +147,7 @@ wss.on('connection', function connection(ws){
             console.log(parsedData.username, " created a new room with ID: ", room)
 
             ws.send("New room created with ID: " + room)
-            console.log("This is room: ",rooms[room])
+            console.log("\n\nCurrent Room State: ",rooms[room])
         }
 
 
@@ -151,29 +157,70 @@ wss.on('connection', function connection(ws){
         else if(parsedData.type === "play"){
 
             const room = parsedData.room;
-            console.log("User joined room: ", room)
             
+
+            // ROOM VALIDATION
             if(!rooms[room]){
-                ws.send("Incorrect room ID");
-                return
-            }
-            if(parsedData.move){
-
-                const move = parsedData.move;
-
-                console.log(move, "\nMove made by user")
-
-                let x:number = move.coordinates.x;
-                let y:number = move.coordinates.y;
-
-                let symbol = move.symbol;
-
-                let coordinates = {x: x, y:y}
-
-                rooms[room].board={coordinates:coordinates, symbol:symbol}
-                console.log(rooms[room].board)
+                ErrorMessage(ws, "Room Does Not Exist")
+                return;
             };
+
+
+            // PLAYER VALIDATION
+            const player = rooms[room].players.find(player=>player.socket === ws);
+
+            if(!player){
+                ErrorMessage(ws, "You are not a player");
+                return;
+            }
+
+
+            // TURN VALIDATION
+            const playerSymbol = player.symbol
+
+            if(playerSymbol !== rooms[room].turn){
+                ErrorMessage(ws, "Not your turn");
+                return;
+            }
+
+            //MOVE VALIDATION
+            const x = parsedData.move.x;
+            const y = parsedData.move.y;
+
+            
+
+            if(x<0 || x>2 || y<0 || y>2){
+                ErrorMessage(ws, "Invalid Move request");
+                return;
+            }
+
+            if(rooms[room].board[x]?.[y] !== Symbols.EMPTY){                                        //OPTIONAL CHAINING ON THIS LINE BECAUSE TS ISN'T HAPPY WITH MY EARLY CHECK ON ROOM'S EXISTENCE
+                ErrorMessage(ws, "Invalid Move Request, Coordinate is not empty.");
+                return;
+            }
+
+            
+            //MOVE APPLICATION
+            
+            rooms[room].board[x][y] = playerSymbol;
+
+
+            // TURN SWITCH        
+            rooms[room].turn = playerSymbol === Symbols.O? Symbols.X : Symbols.O;
+
+
+            // BROADCAST
+            BroadcastBoard(room);
+
+
+
         }
+
+                
+
+                
+            
+    
 
 
         
@@ -186,8 +233,37 @@ wss.on('connection', function connection(ws){
 
             room.players = room.players.filter(socket => socket.socket !== ws);
             room.spectators = room.spectators.filter(socket=>socket!==ws);
+            console.log("\n\nRemaining players in room are: ",room.players)
+            console.log("\n\n& Remaining spectators in room are: ",room.spectators)
         }
 
         console.log("Connection Closed")
     })
 })
+
+
+
+// REUSABLE BOARD BROADCAST FUNCTION
+
+function BroadcastBoard(room: string){
+
+    if(!rooms[room]){
+        console.log("Internal server error, room not found.");
+        return
+    }
+
+    const message = JSON.stringify({type:"board-update", board: rooms[room].board, turn: rooms[room].turn});
+
+    rooms[room].players.forEach((player)=>{player.socket.send(message)});
+    rooms[room].spectators.forEach((spectator)=>{spectator.send(message)})
+}
+
+
+function ErrorMessage(ws: WebSocket, msg: string){
+
+    const message = JSON.stringify({type: "Error", message: msg});
+
+    ws.send(message);
+}
+
+
