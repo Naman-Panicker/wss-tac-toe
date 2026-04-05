@@ -21,11 +21,17 @@ enum Symbols{
     EMPTY = ""
 }
 
+type Board = [
+    [Symbols, Symbols, Symbols],
+    [Symbols, Symbols, Symbols],
+    [Symbols, Symbols, Symbols]
+];
+
 
 interface Room{
     players: {socket: WebSocket, symbol: Symbols}[],
     spectators: WebSocket[],
-    board: Symbols[][],
+    board: Board,
     gameStatus: GameStatus,
     turn: Symbols
 }
@@ -44,9 +50,19 @@ wss.on('connection', function connection(ws){
 
     ws.on('message', async function message(data: Buffer){
 
-        // console.log("Data received: ", data);
 
-        const parsedData = JSON.parse(data.toString());
+
+       let parsedData: any;
+
+        try {
+            parsedData = JSON.parse(data.toString());
+        } catch {
+            ErrorMessage(ws, "Invalid JSON");
+            return;
+        }
+
+
+
         console.log("Parsed Data: ", parsedData, "\n\n")
 
 
@@ -84,7 +100,9 @@ wss.on('connection', function connection(ws){
                                     symbol: symbol
                                 });
 
-                                 rooms[room].turn === Symbols.EMPTY ? rooms[room].turn = Symbols.O : rooms[room].turn = Symbols.X    // ASSIGN FIRST TURN
+                                 if(rooms[room].turn === Symbols.EMPTY){
+                                    rooms[room].turn = Symbols.O
+                                }
 
                                 console.log("\n\n", parsedData.username, " just joined in roomID: ", room);
 
@@ -129,7 +147,7 @@ wss.on('connection', function connection(ws){
                 spectators: [],
                 board: [ [Symbols.EMPTY, Symbols.EMPTY,Symbols.EMPTY], [Symbols.EMPTY, Symbols.EMPTY,Symbols.EMPTY], [Symbols.EMPTY,Symbols.EMPTY,Symbols.EMPTY] ] ,
                 gameStatus: GameStatus.ONGOING,
-                turn: Symbols.EMPTY
+                turn: Symbols.O
             }
 
             
@@ -160,6 +178,13 @@ wss.on('connection', function connection(ws){
             };
 
 
+            //PLAYER LENGTH VALIDATION
+            if (rooms[room].players.length < 2) {
+                ErrorMessage(ws, "Waiting for opponent to join");
+                return;
+            }
+
+
             // PLAYER VALIDATION
             const player = rooms[room].players.find(player=>player.socket === ws);
 
@@ -167,6 +192,19 @@ wss.on('connection', function connection(ws){
                 ErrorMessage(ws, "You are not a player");
                 return;
             }
+
+
+
+
+            // GAME STATUS VALIDATION
+            if (rooms[room].gameStatus !== GameStatus.ONGOING) {
+                ErrorMessage(ws, "Game already finished");
+                return;
+            }
+
+
+            
+
 
 
             // TURN VALIDATION
@@ -178,17 +216,27 @@ wss.on('connection', function connection(ws){
             }
 
             //MOVE VALIDATION
-            const x = parsedData.move.x;
-            const y = parsedData.move.y;
+            const move = parsedData.move;
+
+            if (!move || typeof move.x !== "number" || typeof move.y !== "number") {
+
+                ErrorMessage(ws, "Invalid move format");
+                return;
+            }
+
+            const x = move.x;
+            const y = move.y;
 
             
 
-            if(x<0 || x>2 || y<0 || y>2){
+            if (!Number.isInteger(x) || !Number.isInteger(y) ||x < 0 || x > 2 || y < 0 || y > 2){
+
                 ErrorMessage(ws, "Invalid Move request");
                 return;
             }
 
-            if(rooms[room].board[x]?.[y] !== Symbols.EMPTY){                                        //OPTIONAL CHAINING ON THIS LINE BECAUSE TS ISN'T HAPPY WITH MY EARLY CHECK ON ROOM'S EXISTENCE
+            //@ts-ignore
+            if(rooms[room].board[x][y] !== Symbols.EMPTY){
                 ErrorMessage(ws, "Invalid Move Request, Coordinate is not empty.");
                 return;
             }
@@ -196,19 +244,31 @@ wss.on('connection', function connection(ws){
             
             //MOVE APPLICATION
             
+            //@ts-ignore
             rooms[room].board[x][y] = playerSymbol;
 
 
             // TURN SWITCH        
             rooms[room].turn = playerSymbol === Symbols.O? Symbols.X : Symbols.O;
 
-
-            // BROADCAST
-            BroadcastBoard(room);
-
             
             // WIN CHECK
-            WinCheck(room);
+            let result: GameStatus = WinCheck(room);
+
+            if (result !== GameStatus.ONGOING) {
+            rooms[room].gameStatus = result;
+
+            const msg = JSON.stringify({type: "game-over",result: GameStatus[result]});
+
+            rooms[room].players.forEach(p => p.socket.send(msg));
+            rooms[room].spectators.forEach(s => s.send(msg));
+
+
+            }else{
+                BroadcastBoard(room);
+            }            
+
+
         }
 
                 
@@ -218,12 +278,14 @@ wss.on('connection', function connection(ws){
 
     ws.on('close', function close(data: Buffer){
 
-        for (const room of Object.values(rooms)) {
+        for (const [roomId, room] of Object.entries(rooms)) {
 
-            room.players = room.players.filter(socket => socket.socket !== ws);
-            room.spectators = room.spectators.filter(socket=>socket!==ws);
-            console.log("\n\nRemaining players in room are: ",room.players)
-            console.log("\n\n& Remaining spectators in room are: ",room.spectators)
+            room.players = room.players.filter(p => p.socket !== ws);
+            room.spectators = room.spectators.filter(s => s !== ws);
+
+            if (room.players.length === 0 && room.spectators.length === 0) {
+                delete rooms[roomId];
+            }
         }
 
         console.log("Connection Closed")
@@ -256,12 +318,12 @@ function ErrorMessage(ws: WebSocket, msg: string){
 }
 
 
-function WinCheck(room: string){
+function WinCheck(room: string): GameStatus{
 
     let roomObj = rooms[room];
 
     if(!roomObj){
-        return;
+        return GameStatus.ONGOING;
     }
 
     let b = roomObj.board;
@@ -271,16 +333,14 @@ function WinCheck(room: string){
     // ROW CONDITION
     for(let i=0; i<3; i++){
         
-        
+        //@ts-ignore
         if(b[i][0] === b[i][1] && b[i][1] === b[i][2] && b[i][0] !== Symbols.EMPTY){
             
-            
+            //@ts-ignore
             if(b[i][0] === Symbols.O){
                 return GameStatus.O_WINNER;
-            }else if( b[i][0] === Symbols.X ){
-                return GameStatus.X_WINNER;
             }else{
-                DrawCheck(room);
+                return GameStatus.X_WINNER;
             }
 
         }
@@ -290,15 +350,13 @@ function WinCheck(room: string){
     // COLUMN CONDITION
     for(let i=0; i<3; i++){
         
-        //@ts-ignore
+        
         if(b[0][i] === b[1][i] && b[1][i] === b[2][i] && b[0][i] !== Symbols.EMPTY){
             
             if(b[0][i] === Symbols.O){
                 return GameStatus.O_WINNER;
-            }else if( b[0][i] === Symbols.X ){
-                return GameStatus.X_WINNER;
             }else{
-                DrawCheck(room);
+                return GameStatus.X_WINNER;
             }
             
         }
@@ -308,26 +366,22 @@ function WinCheck(room: string){
 
     // DIAGONAL CONDITION
 
-    // @ts-ignore
+    
     if(b[1][1] === b[2][2] && b[0][0] === b[1][1] && b[0][0] !== Symbols.EMPTY){
 
         if(b[0][0] === Symbols.O){
                 return GameStatus.O_WINNER;
             }else if( b[0][0] === Symbols.X ){
                 return GameStatus.X_WINNER;
-            }else{
-                DrawCheck(room);
             }
     }
-    //@ts-ignore
+    
     else if(b[0][2] === b[1][1] && b[0][2] === b[2][0] && b[0][2] !== Symbols.EMPTY){
 
         if(b[0][2] === Symbols.O){
                 return GameStatus.O_WINNER;
             }else if( b[0][2] === Symbols.X ){
                 return GameStatus.X_WINNER;
-            }else{
-                return DrawCheck(room);
             }
     }
 
@@ -348,7 +402,11 @@ function DrawCheck(room: string): GameStatus {
     const b = roomObj.board;
 
     for (let i = 0; i < 3; i++) {
+
         for (let j = 0; j < 3; j++) {
+
+            
+            //@ts-ignore
             if (b[i][j] === Symbols.EMPTY) {
                 return GameStatus.ONGOING;
             }
