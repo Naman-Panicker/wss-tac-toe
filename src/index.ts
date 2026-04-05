@@ -21,12 +21,6 @@ enum Symbols{
     EMPTY = ""
 }
 
-interface Coordinates{
-    x: number,
-    y: number
-}
-
-
 
 interface Room{
     players: {socket: WebSocket, symbol: Symbols}[],
@@ -212,18 +206,13 @@ wss.on('connection', function connection(ws){
             // BROADCAST
             BroadcastBoard(room);
 
-
-
+            
+            // WIN CHECK
+            WinCheck(room);
         }
 
                 
 
-                
-            
-    
-
-
-        
 
     })
 
@@ -267,3 +256,104 @@ function ErrorMessage(ws: WebSocket, msg: string){
 }
 
 
+function WinCheck(room: string){
+
+    let roomObj = rooms[room];
+
+    if(!roomObj){
+        return;
+    }
+
+    let b = roomObj.board;
+
+
+
+    // ROW CONDITION
+    for(let i=0; i<3; i++){
+        
+        
+        if(b[i][0] === b[i][1] && b[i][1] === b[i][2] && b[i][0] !== Symbols.EMPTY){
+            
+            
+            if(b[i][0] === Symbols.O){
+                return GameStatus.O_WINNER;
+            }else if( b[i][0] === Symbols.X ){
+                return GameStatus.X_WINNER;
+            }else{
+                DrawCheck(room);
+            }
+
+        }
+        
+    }
+
+    // COLUMN CONDITION
+    for(let i=0; i<3; i++){
+        
+        //@ts-ignore
+        if(b[0][i] === b[1][i] && b[1][i] === b[2][i] && b[0][i] !== Symbols.EMPTY){
+            
+            if(b[0][i] === Symbols.O){
+                return GameStatus.O_WINNER;
+            }else if( b[0][i] === Symbols.X ){
+                return GameStatus.X_WINNER;
+            }else{
+                DrawCheck(room);
+            }
+            
+        }
+        
+    }
+
+
+    // DIAGONAL CONDITION
+
+    // @ts-ignore
+    if(b[1][1] === b[2][2] && b[0][0] === b[1][1] && b[0][0] !== Symbols.EMPTY){
+
+        if(b[0][0] === Symbols.O){
+                return GameStatus.O_WINNER;
+            }else if( b[0][0] === Symbols.X ){
+                return GameStatus.X_WINNER;
+            }else{
+                DrawCheck(room);
+            }
+    }
+    //@ts-ignore
+    else if(b[0][2] === b[1][1] && b[0][2] === b[2][0] && b[0][2] !== Symbols.EMPTY){
+
+        if(b[0][2] === Symbols.O){
+                return GameStatus.O_WINNER;
+            }else if( b[0][2] === Symbols.X ){
+                return GameStatus.X_WINNER;
+            }else{
+                return DrawCheck(room);
+            }
+    }
+
+
+    return DrawCheck(room);    
+
+
+}
+
+
+function DrawCheck(room: string): GameStatus {
+
+    const roomObj = rooms[room];
+
+
+    if (!roomObj) return GameStatus.ONGOING;
+
+    const b = roomObj.board;
+
+    for (let i = 0; i < 3; i++) {
+        for (let j = 0; j < 3; j++) {
+            if (b[i][j] === Symbols.EMPTY) {
+                return GameStatus.ONGOING;
+            }
+        }
+    }
+
+    return GameStatus.DRAW;
+}

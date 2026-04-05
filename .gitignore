@@ -6,3 +6,5 @@ node_modules
 dist
 
 /generated/prisma
+
+todos.txt
